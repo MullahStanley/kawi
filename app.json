@@ -12,6 +12,9 @@
     },
     "android": {
       "package": "ke.co.kawigrid.app"
+    },
+    "web": {
+      "bundler": "metro"
     }
   }
 }
