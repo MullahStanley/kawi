@@ -1,0 +1,322 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Master Gate helper for subcollections
+    function isHouseholdOwner(householdId) {
+      return exists(/databases/$(database)/documents/households/$(householdId)) &&
+        get(/databases/$(database)/documents/households/$(householdId)).data.ownerId == request.auth.uid;
+    }
+
+    // Validation Blueprint: HouseholdNode
+    function isValidHouseholdNode(data) {
+      return data.keys().hasAll([
+          'ownerId',
+          'meterNumber',
+          'houseName',
+          'neighborhood',
+          'role',
+          'tokenBalanceKwh',
+          'withdrawableBalanceKes',
+          'totalExportedKwh',
+          'totalConsumedKwh',
+          'tariffKesPerKwh',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId',
+          'meterNumber',
+          'houseName',
+          'neighborhood',
+          'role',
+          'tokenBalanceKwh',
+          'withdrawableBalanceKes',
+          'totalExportedKwh',
+          'totalConsumedKwh',
+          'tariffKesPerKwh',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerId == request.auth.uid &&
+        data.meterNumber is string && data.meterNumber.size() >= 4 && data.meterNumber.size() <= 32 && data.meterNumber.matches('^[A-Z0-9\\-]+$') &&
+        data.houseName is string && data.houseName.size() >= 2 && data.houseName.size() <= 80 &&
+        data.neighborhood is string && data.neighborhood.size() >= 2 && data.neighborhood.size() <= 80 &&
+        data.role is string && data.role.size() <= 16 && (data.role == 'CONSUMER' || data.role == 'PROSUMER' || data.role == 'HYBRID') &&
+        data.tokenBalanceKwh is number && data.tokenBalanceKwh >= 0 && data.tokenBalanceKwh <= 1000000 &&
+        data.withdrawableBalanceKes is number && data.withdrawableBalanceKes >= 0 && data.withdrawableBalanceKes <= 100000000 &&
+        data.totalExportedKwh is number && data.totalExportedKwh >= 0 && data.totalExportedKwh <= 10000000 &&
+        data.totalConsumedKwh is number && data.totalConsumedKwh >= 0 && data.totalConsumedKwh <= 10000000 &&
+        data.tariffKesPerKwh is number && data.tariffKesPerKwh >= 1 && data.tariffKesPerKwh <= 500 &&
+        data.status is string && data.status.size() <= 16 && (data.status == 'ONLINE' || data.status == 'LOW_RESERVE' || data.status == 'ISLANDED') &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: HouseholdPrivateInfo (PII Isolated)
+    function isValidHouseholdPrivateInfo(data) {
+      return data.keys().hasAll([
+          'ownerId',
+          'mpesaPhone',
+          'email',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId',
+          'mpesaPhone',
+          'email',
+          'updatedAt'
+        ]) &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerId == request.auth.uid &&
+        data.mpesaPhone is string && data.mpesaPhone.size() >= 10 && data.mpesaPhone.size() <= 16 && data.mpesaPhone.matches('^\\+?254[17][0-9]{8}$') &&
+        data.email is string && data.email.size() >= 5 && data.email.size() <= 120 &&
+        data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: EnergyTransaction
+    function isValidEnergyTransaction(data, householdId) {
+      return data.keys().hasAll([
+          'ownerId',
+          'householdId',
+          'txType',
+          'amountKwh',
+          'amountKes',
+          'mpesaReceipt',
+          'counterpartyMeter',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId',
+          'householdId',
+          'txType',
+          'amountKwh',
+          'amountKes',
+          'mpesaReceipt',
+          'counterpartyMeter',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerId == request.auth.uid &&
+        data.householdId is string && data.householdId.size() >= 1 && data.householdId.size() <= 128 && data.householdId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.householdId == householdId &&
+        data.txType is string && data.txType.size() <= 32 && (
+          data.txType == 'C2B_STK_DEPOSIT' ||
+          data.txType == 'P2P_METER_DEDUCTION' ||
+          data.txType == 'P2P_PROSUMER_CREDIT' ||
+          data.txType == 'B2C_MPESA_WITHDRAWAL'
+        ) &&
+        data.amountKwh is number && data.amountKwh >= 0 && data.amountKwh <= 100000 &&
+        data.amountKes is number && data.amountKes >= 0 && data.amountKes <= 10000000 &&
+        data.mpesaReceipt is string && data.mpesaReceipt.size() >= 4 && data.mpesaReceipt.size() <= 40 && data.mpesaReceipt.matches('^[A-Z0-9\\-_]+$') &&
+        data.counterpartyMeter is string && data.counterpartyMeter.size() >= 3 && data.counterpartyMeter.size() <= 40 &&
+        data.status is string && data.status.size() <= 16 && (
+          data.status == 'PENDING' ||
+          data.status == 'COMPLETED' ||
+          data.status == 'FAILED'
+        ) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: DailyEnergyMetric
+    function isValidDailyEnergyMetric(data, householdId) {
+      return data.keys().hasAll([
+          'ownerId',
+          'householdId',
+          'dateStr',
+          'consumedKwh',
+          'exportedKwh',
+          'costKes',
+          'revenueKes',
+          'peakHourKw',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId',
+          'householdId',
+          'dateStr',
+          'consumedKwh',
+          'exportedKwh',
+          'costKes',
+          'revenueKes',
+          'peakHourKw',
+          'updatedAt'
+        ]) &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerId == request.auth.uid &&
+        data.householdId is string && data.householdId.size() >= 1 && data.householdId.size() <= 128 && data.householdId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.householdId == householdId &&
+        data.dateStr is string && data.dateStr.size() == 10 && data.dateStr.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+        data.consumedKwh is number && data.consumedKwh >= 0 && data.consumedKwh <= 10000 &&
+        data.exportedKwh is number && data.exportedKwh >= 0 && data.exportedKwh <= 10000 &&
+        data.costKes is number && data.costKes >= 0 && data.costKes <= 1000000 &&
+        data.revenueKes is number && data.revenueKes >= 0 && data.revenueKes <= 1000000 &&
+        data.peakHourKw is number && data.peakHourKw >= 0 && data.peakHourKw <= 500 &&
+        data.updatedAt is timestamp;
+    }
+
+    // Collection 1: /households/{householdId}
+    match /households/{householdId} {
+      allow get: if isSignedIn() && isValidId(householdId) && existing().ownerId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isVerifiedUser() &&
+        isValidId(householdId) &&
+        isValidHouseholdNode(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() &&
+        isValidId(householdId) &&
+        isValidHouseholdNode(incoming()) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().meterNumber == existing().meterNumber &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          // Action 1: Ledger & Meter Balance Settlement Update
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'tokenBalanceKwh',
+            'withdrawableBalanceKes',
+            'totalExportedKwh',
+            'totalConsumedKwh',
+            'status',
+            'updatedAt'
+          ]) ||
+          // Action 2: Household Profile & Tariff Configuration Update
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'houseName',
+            'neighborhood',
+            'role',
+            'tariffKesPerKwh',
+            'status',
+            'updatedAt'
+          ])
+        );
+      allow delete: if false;
+
+      // Subcollection 1: /households/{householdId}/private/{docId}
+      match /private/{docId} {
+        allow get: if isSignedIn() && isValidId(householdId) && isValidId(docId) && existing().ownerId == request.auth.uid && isHouseholdOwner(householdId);
+        allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(householdId) &&
+          isValidId(docId) &&
+          isValidHouseholdPrivateInfo(incoming()) &&
+          incoming().updatedAt == request.time &&
+          isHouseholdOwner(householdId);
+        allow update: if isVerifiedUser() &&
+          isValidId(householdId) &&
+          isValidId(docId) &&
+          isValidHouseholdPrivateInfo(incoming()) &&
+          existing().ownerId == request.auth.uid &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'mpesaPhone',
+            'email',
+            'updatedAt'
+          ]) &&
+          isHouseholdOwner(householdId);
+        allow delete: if false;
+      }
+
+      // Subcollection 2: /households/{householdId}/transactions/{txId}
+      match /transactions/{txId} {
+        allow get: if isSignedIn() && isValidId(householdId) && isValidId(txId) && existing().ownerId == request.auth.uid && isHouseholdOwner(householdId);
+        allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(householdId) &&
+          isValidId(txId) &&
+          isValidEnergyTransaction(incoming(), householdId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          isHouseholdOwner(householdId);
+        allow update: if isVerifiedUser() &&
+          isValidId(householdId) &&
+          isValidId(txId) &&
+          isValidEnergyTransaction(incoming(), householdId) &&
+          existing().ownerId == request.auth.uid &&
+          existing().status == 'PENDING' &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().householdId == existing().householdId &&
+          incoming().txType == existing().txType &&
+          incoming().amountKwh == existing().amountKwh &&
+          incoming().amountKes == existing().amountKes &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'status',
+            'mpesaReceipt',
+            'updatedAt'
+          ]) &&
+          isHouseholdOwner(householdId);
+        allow delete: if false;
+      }
+
+      // Subcollection 3: /households/{householdId}/dailyMetrics/{dayId}
+      match /dailyMetrics/{dayId} {
+        allow get: if isSignedIn() && isValidId(householdId) && isValidId(dayId) && existing().ownerId == request.auth.uid && isHouseholdOwner(householdId);
+        allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(householdId) &&
+          isValidId(dayId) &&
+          isValidDailyEnergyMetric(incoming(), householdId) &&
+          incoming().updatedAt == request.time &&
+          isHouseholdOwner(householdId);
+        allow update: if isVerifiedUser() &&
+          isValidId(householdId) &&
+          isValidId(dayId) &&
+          isValidDailyEnergyMetric(incoming(), householdId) &&
+          existing().ownerId == request.auth.uid &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().householdId == existing().householdId &&
+          incoming().dateStr == existing().dateStr &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'consumedKwh',
+            'exportedKwh',
+            'costKes',
+            'revenueKes',
+            'peakHourKw',
+            'updatedAt'
+          ]) &&
+          isHouseholdOwner(householdId);
+        allow delete: if false;
+      }
+    }
+  }
+}

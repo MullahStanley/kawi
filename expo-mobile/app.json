@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "KawiGrid P2P Energy Trading",
+    "slug": "kawigrid-p2p",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ke.co.kawigrid.app"
+    },
+    "android": {
+      "package": "ke.co.kawigrid.app"
+    }
+  }
+}

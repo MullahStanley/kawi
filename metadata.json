@@ -1,0 +1,6 @@
+{
+  "name": "KawiGrid P2P — Community Solar & Smart Meter Energy Trading",
+  "description": "Peer-to-peer solar energy sharing mobile platform connecting Prosumer and Consumer households with real-time token metering, smart deposit forecasting, and Safaricom M-Pesa Daraja settlements.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
